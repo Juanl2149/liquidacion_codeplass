@@ -1146,6 +1146,7 @@ function renderMain() {
     hdrBtns.appendChild(el("button",{style:{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px"},onClick:abrirHistorial},"Historial"));
     if(state.esAdmin) hdrBtns.appendChild(el("button",{style:{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px"},onClick:()=>setState({screen:"upload",clienteMap:{},devoluciones:[],estadoEntrega:{},descuentos:{},comentarios:{},bloqueados:{},deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:""}],billetes:Object.fromEntries(BILLETES.map(b=>[b,""])),monedas:"",confirmado:false,modoHistorial:false})},"Nuevo archivo"));
   }
+  hdrBtns.appendChild(el("button",{style:{background:"#c0392b",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px",fontWeight:"600"},onClick:()=>setState({autenticado:false,esAdmin:false,screen:"upload",clienteMap:{},devoluciones:[],estadoEntrega:{},descuentos:{},comentarios:{},bloqueados:{},deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:""}],billetes:Object.fromEntries(BILLETES.map(b=>[b,""])),monedas:"",confirmado:false,modoHistorial:false})},"🚪 Salir"));
   hdr.appendChild(hdrBtns); inner.appendChild(hdr);
 
   // Cards
@@ -1259,6 +1260,8 @@ function renderMain() {
       const tieneComentario=!!(state.comentarios[cliente]||"").trim();
       const pedidosList=Object.keys(state.clienteMap[cliente].pedidos).join(", ");
       const estado = state.estadoEntrega[cliente] || null;
+      // Notas del vendedor de cualquier pedido del cliente
+      const notasVendedor = Object.values(state.clienteMap[cliente].pedidos||{}).map(p=>p.nota).filter(Boolean);
       // Color de fila según estado
       const rowBg = estado==="verde"?"#e8f5e9":estado==="amarillo"?"#fffde7":estado==="rosado"?"#fce4ec":ri%2===0?"#fafbfc":"#fff";
       const row=el("tr",{style:{borderTop:"1px solid #f0f0f0",background:rowBg,transition:"background 0.3s"}});
@@ -1295,6 +1298,12 @@ function renderMain() {
       nameBtn.textContent=cliente;
       nameBtn.onclick=()=>{if(state.modoHistorial){setState({clienteDetalle:cliente});}else if(!bloqueado){setState({clienteDetalle:cliente});}};
       nameTd.appendChild(nameBtn);
+      if(notasVendedor.length>0){
+        const notaP=document.createElement("p");
+        notaP.style.cssText="margin:3px 0 0;font-size:11px;color:#c07000;font-style:italic;line-height:1.3;";
+        notaP.textContent="📝 "+notasVendedor.join(" | ");
+        nameTd.appendChild(notaP);
+      }
       row.appendChild(nameTd);
 
       row.appendChild(el("td",{style:{padding:"9px 12px",color:"#555",fontSize:"12px"}},pedidosList));
@@ -1368,10 +1377,15 @@ function renderMain() {
     billDiv.appendChild(row);
   });
   const subtotalRow=document.createElement("div");
-  subtotalRow.style.cssText="border-top:2px solid #eef2f7;padding-top:8px;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13px;margin-top:4px;";
-  const subtotalLbl=document.createElement("span"); subtotalLbl.style.color="#555"; subtotalLbl.textContent="Subtotal billetes";
+  subtotalRow.style.cssText="border-top:2px solid #eef2f7;padding-top:8px;display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin-top:4px;";
+  const subtotalLbl=document.createElement("span");
+  subtotalLbl.style.cssText="color:#555;flex:1;";
+  subtotalLbl.textContent="Subtotal billetes";
+  // Spacer para alinear con el input (60px input + gaps)
+  const subtotalSpacer=document.createElement("span");
+  subtotalSpacer.style.cssText="min-width:60px;";
   subtotalBillSpan.textContent=fQ([1,5,10,20,50,100,200].reduce((s,b)=>s+b*(parseFloat(state.billetes[b])||0),0));
-  subtotalRow.appendChild(subtotalLbl); subtotalRow.appendChild(subtotalBillSpan);
+  subtotalRow.appendChild(subtotalLbl); subtotalRow.appendChild(subtotalSpacer); subtotalRow.appendChild(subtotalBillSpan);
   billDiv.appendChild(subtotalRow);
   cuadreGrid.appendChild(billDiv);
 
