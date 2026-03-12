@@ -1341,9 +1341,19 @@ function renderMain() {
 
   // ── Billetes (sin re-render) ──
   const billDiv=el("div");
-  billDiv.appendChild(el("div",{style:{fontWeight:"700",fontSize:"13px",color:"#555",marginBottom:"10px"}},"💵 Billetes"));
+  billDiv.appendChild(el("div",{style:{fontWeight:"700",fontSize:"13px",color:"#555",marginBottom:"8px"}},"💵 Billetes"));
+  // Encabezados de columna
+  const billHdr=document.createElement("div");
+  billHdr.style.cssText="display:grid;grid-template-columns:48px 16px 60px 75px;gap:8px;align-items:center;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid #eef2f7;";
+  ["DEN.","","CANT","TOTAL Q"].forEach((h,i)=>{
+    const s=document.createElement("span");
+    s.style.cssText="font-size:10px;font-weight:700;color:#888;text-align:"+(i===3?"right":i===0?"center":"center")+";";
+    s.textContent=h;
+    billHdr.appendChild(s);
+  });
+  billDiv.appendChild(billHdr);
   const subtotalBillSpan=document.createElement("span");
-  subtotalBillSpan.style.cssText="color:#1e3a5f;font-weight:700;min-width:75px;text-align:right;";
+  subtotalBillSpan.style.cssText="color:#1e3a5f;font-weight:700;width:75px;text-align:right;";
   const actualizarBilletes=()=>{
     const tot=[1,5,10,20,50,100,200].reduce((s,b)=>s+b*(parseFloat(state.billetes[b])||0),0);
     subtotalBillSpan.textContent=fQ(tot);
@@ -1353,18 +1363,18 @@ function renderMain() {
   };
   BILLETES.forEach(b=>{
     const row=document.createElement("div");
-    row.style.cssText="display:flex;align-items:center;gap:8px;margin-bottom:7px;";
+    row.style.cssText="display:grid;grid-template-columns:48px 16px 60px 75px;gap:8px;align-items:center;margin-bottom:7px;";
     const lbl=document.createElement("span");
-    lbl.style.cssText="background:#1e3a5f;color:#fff;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;min-width:40px;text-align:center;";
+    lbl.style.cssText="background:#1e3a5f;color:#fff;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;text-align:center;";
     lbl.textContent=`Q${b}`;
-    const x=document.createElement("span"); x.style.cssText="color:#aaa;font-size:11px;"; x.textContent="×";
+    const x=document.createElement("span"); x.style.cssText="color:#aaa;font-size:11px;text-align:center;"; x.textContent="×";
     const bi=document.createElement("input");
     bi.type="number"; bi.min="0"; bi.placeholder="0";
-    bi.style.cssText="width:60px;padding:5px 8px;border-radius:6px;border:1px solid #ccc;font-size:13px;text-align:right;box-sizing:border-box;font-family:sans-serif;"+(state.modoHistorial?";background:#f4f6f9;color:#555;cursor:not-allowed":"");
+    bi.style.cssText="width:100%;padding:5px 8px;border-radius:6px;border:1px solid #ccc;font-size:13px;text-align:right;box-sizing:border-box;font-family:sans-serif;"+(state.modoHistorial?";background:#f4f6f9;color:#555;cursor:not-allowed":"");
     if(state.modoHistorial) bi.disabled=true;
     bi.value=state.billetes[b]||"";
     const totSpan=document.createElement("span");
-    totSpan.style.cssText="min-width:75px;text-align:right;font-size:12px;color:#1e3a5f;font-weight:600;";
+    totSpan.style.cssText="text-align:right;font-size:12px;color:#1e3a5f;font-weight:600;";
     totSpan.textContent=fQ(b*(parseFloat(state.billetes[b])||0));
     bi.setAttribute("data-cuadre","1");
     bi.addEventListener("input",e=>{
@@ -1377,15 +1387,12 @@ function renderMain() {
     billDiv.appendChild(row);
   });
   const subtotalRow=document.createElement("div");
-  subtotalRow.style.cssText="border-top:2px solid #eef2f7;padding-top:8px;display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin-top:4px;";
+  subtotalRow.style.cssText="border-top:2px solid #eef2f7;padding-top:8px;display:grid;grid-template-columns:48px 16px 60px 75px;gap:8px;align-items:center;font-weight:700;font-size:13px;margin-top:4px;";
   const subtotalLbl=document.createElement("span");
-  subtotalLbl.style.cssText="color:#555;flex:1;";
+  subtotalLbl.style.cssText="color:#555;grid-column:1/4;font-size:12px;";
   subtotalLbl.textContent="Subtotal billetes";
-  // Spacer para alinear con el input (60px input + gaps)
-  const subtotalSpacer=document.createElement("span");
-  subtotalSpacer.style.cssText="min-width:60px;";
   subtotalBillSpan.textContent=fQ([1,5,10,20,50,100,200].reduce((s,b)=>s+b*(parseFloat(state.billetes[b])||0),0));
-  subtotalRow.appendChild(subtotalLbl); subtotalRow.appendChild(subtotalSpacer); subtotalRow.appendChild(subtotalBillSpan);
+  subtotalRow.appendChild(subtotalLbl); subtotalRow.appendChild(subtotalBillSpan);
   billDiv.appendChild(subtotalRow);
   cuadreGrid.appendChild(billDiv);
 
