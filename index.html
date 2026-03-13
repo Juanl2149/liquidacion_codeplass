@@ -1048,6 +1048,10 @@ function renderDetalleCliente() {
 
 function renderMain() {
   const clientes=Object.keys(state.clienteMap);
+  const totalDevGral=clientes.reduce((s,c)=>{
+    if(state.estadoEntrega[c]==="rosado") return s+totalesCliente(c).monto;
+    return s+totalesCliente(c).devM;
+  },0);
   const gral=totalesGral();
   const montoEntregado=clientes.filter(c=>state.estadoEntrega[c] && state.estadoEntrega[c]!=="rosado").reduce((s,c)=>s+totalesCliente(c).netoM,0);
   const montoPendiente=clientes.filter(c=>!state.estadoEntrega[c]).reduce((s,c)=>s+totalesCliente(c).netoM,0);
@@ -1186,10 +1190,6 @@ function renderMain() {
   const cntRosado=clientes.filter(c=>state.estadoEntrega[c]==="rosado").length;
   const entregadosCount=cntVerde+cntAmarillo;
   // Total devoluciones: parciales + monto bruto de devoluciones totales
-  const totalDevGral=clientes.reduce((s,c)=>{
-    if(state.estadoEntrega[c]==="rosado") return s+totalesCliente(c).monto;
-    return s+totalesCliente(c).devM;
-  },0);
   // Efectividad entrega: (verde+amarillo)/total
   const pctEfectividad=clientes.length>0?Math.round((cntVerde+cntAmarillo)/clientes.length*100):0;
   // % devoluciones totales: rosado/total
