@@ -630,6 +630,23 @@ function actualizarResumen() {
   difVal.textContent=Math.abs(diferencia2)<0.01?"✓ CUADRADO":diferencia2>0?`+${fQ(diferencia2)} SOBRANTE`:`-${fQ(Math.abs(diferencia2))} FALTANTE`;
   difDiv.appendChild(difLabel); difDiv.appendChild(difVal);
   resDiv.appendChild(difDiv);
+  // Autosave cuadre en Firebase
+  clearTimeout(window._autoSaveCuadre);
+  window._autoSaveCuadre = setTimeout(async () => {
+    try {
+      const actual = await fbGet("datos-dia");
+      if(actual) {
+        await fbSet("datos-dia", {
+          ...actual,
+          billetes: state.billetes,
+          monedas: state.monedas,
+          deposito: state.deposito,
+          transferencia: state.transferencia,
+          gastosDetalle: state.gastosDetalle
+        });
+      }
+    } catch(e) { console.warn("AutoSave cuadre error:", e); }
+  }, 1500);
 }
 
 // ── Render helpers ──
