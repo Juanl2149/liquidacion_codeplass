@@ -1048,10 +1048,17 @@ function renderDetalleCliente() {
 
 function renderMain() {
   const clientes=Object.keys(state.clienteMap);
+  // Variables globales de renderMain (declaradas aquí para uso en modal y resto)
   const totalDevGral=clientes.reduce((s,c)=>{
     if(state.estadoEntrega[c]==="rosado") return s+totalesCliente(c).monto;
     return s+totalesCliente(c).devM;
   },0);
+  const cntVerde=clientes.filter(c=>state.estadoEntrega[c]==="verde").length;
+  const cntAmarillo=clientes.filter(c=>state.estadoEntrega[c]==="amarillo").length;
+  const cntRosado=clientes.filter(c=>state.estadoEntrega[c]==="rosado").length;
+  const entregadosCount=cntVerde+cntAmarillo;
+  const montoTotal=clientes.reduce((s,c)=>s+totalesCliente(c).monto,0);
+  const pctEfectividad=clientes.length>0?Math.round((cntVerde+cntAmarillo)/clientes.length*100):0;
   const gral=totalesGral();
   const montoEntregado=clientes.filter(c=>state.estadoEntrega[c] && state.estadoEntrega[c]!=="rosado").reduce((s,c)=>s+totalesCliente(c).netoM,0);
   const montoPendiente=clientes.filter(c=>!state.estadoEntrega[c]).reduce((s,c)=>s+totalesCliente(c).netoM,0);
@@ -1185,16 +1192,10 @@ function renderMain() {
   hdr.appendChild(hdrBtns); inner.appendChild(hdr);
 
   // Cards
-  const cntVerde=clientes.filter(c=>state.estadoEntrega[c]==="verde").length;
-  const cntAmarillo=clientes.filter(c=>state.estadoEntrega[c]==="amarillo").length;
-  const cntRosado=clientes.filter(c=>state.estadoEntrega[c]==="rosado").length;
-  const entregadosCount=cntVerde+cntAmarillo;
   // Total devoluciones: parciales + monto bruto de devoluciones totales
   // Efectividad entrega: (verde+amarillo)/total
-  const pctEfectividad=clientes.length>0?Math.round((cntVerde+cntAmarillo)/clientes.length*100):0;
   // % devoluciones totales: rosado/total
   const pctDevTotal=clientes.length>0?(Math.round(cntRosado/clientes.length*1000)/10).toFixed(1):0;
-  const montoTotal=clientes.reduce((s,c)=>s+totalesCliente(c).monto,0);
   const pctMonto=montoTotal>0?(Math.round(montoEntregado/montoTotal*1000)/10).toFixed(1):0;
   const cards=el("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"12px",marginBottom:"20px"}});
 
