@@ -91,9 +91,9 @@ function parseFile(raw) {
       }
       cliente=nombre?`${codigo} - ${nombre}`:codigo;
       pedido=ped;
-      if(!map[cliente]) map[cliente]={ruta,pedidos:{},estPed};
-      else if(estPed && !map[cliente].estPed) map[cliente].estPed=estPed;
-      if(!map[cliente].pedidos[pedido]) map[cliente].pedidos[pedido]={lineas:[]};
+      if(!map[cliente]) map[cliente]={ruta,pedidos:{}};
+      // estPed se guarda por pedido, no por cliente
+      if(!map[cliente].pedidos[pedido]) map[cliente].pedidos[pedido]={lineas:[],estPed};
       continue;
     }
     if(esProducto(A)&&cliente){
@@ -194,9 +194,20 @@ function setState(updates) {
 }
 
 // ── Totales ──
+// Helper: true si todos los pedidos del cliente son "Pre"
+function esClientePre(c) {
+  const pedidos = Object.values(state.clienteMap[c]?.pedidos||{});
+  return pedidos.length > 0 && pedidos.every(p=>/^pre$/i.test(p.estPed||""));
+}
+// Helper: true si un pedido específico es "Pre"
+const esPedPre = p => /^pre$/i.test(p?.estPed||"");
+
 function totalesCliente(c) {
   let u=0,m=0;
-  Object.values(state.clienteMap[c]?.pedidos||{}).forEach(p=>p.lineas.forEach(l=>{u+=l.unidades;m+=l.monto;}));
+  Object.values(state.clienteMap[c]?.pedidos||{}).forEach(p=>{
+    if(esPedPre(p)) return; // excluir pedidos en presupuesto
+    p.lineas.forEach(l=>{u+=l.unidades;m+=l.monto;});
+  });
   const devs=state.devoluciones.filter(d=>d.cliente===c);
   const dU=devs.reduce((s,d)=>s+d.unidades,0),dM=devs.reduce((s,d)=>s+d.monto,0);
   const desc=parseFloat(state.descuentos[c])||0;
@@ -214,7 +225,7 @@ function estadoCliente(c) {
 
 function totalesGral() {
   return Object.keys(state.clienteMap).reduce((acc,c)=>{
-    if(/^pre$/i.test(state.clienteMap[c].estPed||"")) return acc;
+    if(esClientePre(c)) return acc;
     const t=totalesCliente(c);
     acc.unidades+=t.unidades;acc.monto+=t.monto;acc.devM+=t.devM;acc.desc+=t.desc;acc.netoM+=t.netoM;
     return acc;
@@ -286,7 +297,7 @@ async function procesarArchivo(file) {
     Object.entries(map).forEach(([k,v])=>{
       const cleanPedidos={};
       Object.entries(v.pedidos||{}).forEach(([pk,pv])=>{cleanPedidos[cleanKey(pk)]={...pv,pedidoOriginal:pk};});
-      cleanMap[cleanKey(k)]={...v,pedidos:cleanPedidos,nombreOriginal:k,estPed:v.estPed||""};
+      cleanMap[cleanKey(k)]={...v,pedidos:cleanPedidos,nombreOriginal:k};
     });
     await fbSet("datos-dia",{clienteMap:cleanMap,fileName:file.name,fecha:state.fecha});
     setState({
@@ -305,7 +316,7 @@ async function confirmarLiquidacion() {
     // Calcular y guardar totales por cliente para el historial (excluir presupuestos)
     const clienteTotales = {};
     Object.keys(state.clienteMap).forEach(c => {
-      if(/^pre$/i.test(state.clienteMap[c].estPed||"")) return;
+      if(esClientePre(c)) return;
       if(!state.estadoEntrega[c]) return;
       let m=0;
       Object.values(state.clienteMap[c].pedidos||{}).forEach(p=>p.lineas.forEach(l=>{m+=l.monto;}));
@@ -368,7 +379,7 @@ async function exportarExcel(reg) {
   const cMap=reg.clienteMap||{};
   const gastos=reg.gastosDetalle||[];
   const billetes=reg.billetes||{};
-  const clts=[...new Set([...Object.keys(estadoEnt),...Object.keys(cMap),...devs.map(d=>d.cliente)])].filter(Boolean).filter(c=>!/^pre$/i.test(cMap[c]?.estPed||"")).sort();
+  const clts=[...new Set([...Object.keys(estadoEnt),...Object.keys(cMap),...devs.map(d=>d.cliente)])].filter(Boolean).filter(c=>{ const ps=Object.values(cMap[c]?.pedidos||{}); return !(ps.length>0&&ps.every(p=>/^pre$/i.test(p.estPed||""))); }).sort();
 
   // ── Hoja 1: Resumen ──
   // Fix obs.2: devoluciones siempre se muestran en columna Devoluciones (positivo),
@@ -593,13 +604,13 @@ function actualizarResumen() {
 
   // Total a Entregar: bruto de clientes entregables (excluir presupuestos)
   const totalAEntregar = Object.keys(state.clienteMap).reduce((acc,c)=>{
-    if(/^pre$/i.test(state.clienteMap[c].estPed||"")) return acc;
-    let m=0; Object.values(state.clienteMap[c].pedidos||{}).forEach(p=>p.lineas.forEach(l=>{m+=l.monto;}));
+    if(esClientePre(c)) return acc;
+    let m=0; Object.values(state.clienteMap[c].pedidos||{}).filter(p=>!esPedPre(p)).forEach(p=>p.lineas.forEach(l=>{m+=l.monto;}));
     return acc + m;
   },0);
   // Devoluciones: parciales + bruto de rosados (excluir presupuestos)
   const totalDevCuadre = Object.keys(state.clienteMap).reduce((acc,c)=>{
-    if(/^pre$/i.test(state.clienteMap[c].estPed||"")) return acc;
+    if(esClientePre(c)) return acc;
     if(state.estadoEntrega[c]==="rosado"){
       let m=0; Object.values(state.clienteMap[c].pedidos||{}).forEach(p=>p.lineas.forEach(l=>{m+=l.monto;}));
       return acc + m;
@@ -608,7 +619,7 @@ function actualizarResumen() {
   },0);
   // Descuentos: solo confirmados verde+amarillo (excluir presupuestos)
   const totalDescCuadre = Object.keys(state.clienteMap).reduce((acc,c)=>{
-    if(/^pre$/i.test(state.clienteMap[c].estPed||"")) return acc;
+    if(esClientePre(c)) return acc;
     if(!state.estadoEntrega[c]||state.estadoEntrega[c]==="rosado") return acc;
     return acc + (parseFloat(state.descuentos[c])||0);
   },0);
@@ -854,7 +865,7 @@ function cargarFechaHistorial(fecha) {
 function renderDetalleCliente() {
   const c=state.clienteDetalle;
   const cl=state.clienteMap[c];
-  const esPresupuesto = /^pre$/i.test(cl.estPed||"");
+  const esPresupuesto = esClientePre(state.clienteDetalle);
   const devsCl=state.devoluciones.filter(d=>d.cliente===c);
   const pedidos=Object.entries(cl.pedidos);
   const tc=totalesCliente(c);
@@ -878,10 +889,18 @@ function renderDetalleCliente() {
   hdrLeft.appendChild(subtitleRow);
   hdr.appendChild(hdrLeft);
   // Solo mostrar botón de devolución si NO es presupuesto y NO es historial
-  if(!state.modoHistorial && !esPresupuesto) hdr.appendChild(el("button",{style:{background:"#c0392b",color:"#fff",border:"none",borderRadius:"8px",padding:"9px 16px",cursor:"pointer",fontSize:"13px",fontWeight:"700"},onClick:()=>setState({showDvForm:true,dvPedido:pedidos.length===1?pedidos[0][0]:""})},"↩️ Registrar Devolución"));
+  const pedidosEntregables=pedidos.filter(([,p])=>!esPedPre(p));
+  if(!state.modoHistorial && pedidosEntregables.length>0) hdr.appendChild(el("button",{style:{background:"#c0392b",color:"#fff",border:"none",borderRadius:"8px",padding:"9px 16px",cursor:"pointer",fontSize:"13px",fontWeight:"700"},onClick:()=>setState({showDvForm:true,dvPedido:pedidosEntregables.length===1?pedidosEntregables[0][0]:""})},"↩️ Registrar Devolución"));
   inner.appendChild(hdr);
 
-  // Banner informativo para presupuesto
+  // Banner informativo si tiene al menos un pedido en presupuesto (pero no todos)
+  const tienePedidosPre = pedidos.some(([,p])=>esPedPre(p));
+  if(tienePedidosPre && !esPresupuesto){
+    inner.appendChild(el("div",{style:{background:"#f5f5f5",border:"1px solid #bdbdbd",borderRadius:"10px",padding:"12px 18px",marginBottom:"16px",display:"flex",alignItems:"center",gap:"10px",fontSize:"13px",color:"#555"}},
+      el("span",{style:{fontSize:"18px"}},"📋"),
+      el("span",{},"Este cliente tiene pedido(s) en presupuesto (marcados en gris). Esos productos no se entregan y no suman en los totales.")
+    ));
+  }
   if(esPresupuesto){
     inner.appendChild(el("div",{style:{background:"#f5f5f5",border:"1px solid #bdbdbd",borderRadius:"10px",padding:"12px 18px",marginBottom:"16px",display:"flex",alignItems:"center",gap:"10px",fontSize:"13px",color:"#555"}},
       el("span",{style:{fontSize:"18px"}},"📋"),
@@ -891,21 +910,31 @@ function renderDetalleCliente() {
 
   // Pedidos
   pedidos.forEach(([pedido,pData])=>{
+    const pedEsPre = esPedPre(pData);
     const pm=pData.lineas.reduce((s,l)=>s+l.monto,0);
     const devM=devsCl.filter(d=>d.pedido===pedido).reduce((s,d)=>s+d.monto,0);
     const devU=devsCl.filter(d=>d.pedido===pedido).reduce((s,d)=>s+d.unidades,0);
-    const box=el("div",{style:{background:"#fff",borderRadius:"12px",boxShadow:"0 2px 8px rgba(0,0,0,0.07)",marginBottom:"16px",overflow:"hidden"}});
-    const phdr=el("div",{style:{background:"#2d5f8a",color:"#fff",padding:"10px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}});
-    phdr.appendChild(el("span",{style:{fontWeight:"700",fontSize:"14px"}},`Pedido: ${pedido}`));
+    const boxBg = pedEsPre ? "#f0f0f0" : "#fff";
+    const box=el("div",{style:{background:boxBg,borderRadius:"12px",boxShadow:"0 2px 8px rgba(0,0,0,0.07)",marginBottom:"16px",overflow:"hidden",opacity:pedEsPre?"0.75":"1"}});
+    const phdrBg = pedEsPre ? "#9e9e9e" : "#2d5f8a";
+    const phdr=el("div",{style:{background:phdrBg,color:"#fff",padding:"10px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}});
+    const phdrLeft=el("div",{style:{display:"flex",alignItems:"center",gap:"10px"}});
+    phdrLeft.appendChild(el("span",{style:{fontWeight:"700",fontSize:"14px"}},`Pedido: ${pedido}`));
+    if(pedEsPre) phdrLeft.appendChild(el("span",{style:{background:"rgba(255,255,255,0.25)",borderRadius:"4px",padding:"1px 8px",fontSize:"11px",fontWeight:"700"}},"📋 PRESUPUESTO"));
+    phdr.appendChild(phdrLeft);
     const psum=el("div",{style:{display:"flex",gap:"16px",fontSize:"13px"}});
-    psum.appendChild(el("span",{},`Bruto: ${fQ(pm)}`));
-    if(devM>0) psum.appendChild(el("span",{style:{color:"#ffaaaa"}},`Dev: -${fQ(devM)}`));
-    psum.appendChild(el("span",{style:{fontWeight:"700"}},`Neto: ${fQ(pm-devM)}`));
+    if(!pedEsPre){
+      psum.appendChild(el("span",{},`Bruto: ${fQ(pm)}`));
+      if(devM>0) psum.appendChild(el("span",{style:{color:"#ffaaaa"}},`Dev: -${fQ(devM)}`));
+      psum.appendChild(el("span",{style:{fontWeight:"700"}},`Neto: ${fQ(pm-devM)}`));
+    } else {
+      psum.appendChild(el("span",{style:{fontSize:"12px",opacity:"0.85"}},`${fQ(pm)} · Solo consulta`));
+    }
     phdr.appendChild(psum); box.appendChild(phdr);
     const t=el("table",{style:{width:"100%",borderCollapse:"collapse",fontSize:"13px"}});
     const thead=el("thead"); const tr=el("tr");
     ["Producto","Unidades","P.Unit.","Monto","Dev. Unid.","Dev. Monto","Neto"].forEach((h,i)=>{
-      tr.appendChild(el("th",{style:{padding:"9px 12px",textAlign:i===0?"left":"right",color:"#555",fontWeight:"600",background:"#eef2f7",whiteSpace:"nowrap"}},h));
+      tr.appendChild(el("th",{style:{padding:"9px 12px",textAlign:i===0?"left":"right",color:pedEsPre?"#888":"#555",fontWeight:"600",background:pedEsPre?"#e8e8e8":"#eef2f7",whiteSpace:"nowrap"}},h));
     });
     thead.appendChild(tr); t.appendChild(thead);
     const tbody=el("tbody");
@@ -913,14 +942,23 @@ function renderDetalleCliente() {
       const ldU=devsCl.filter(d=>d.pedido===pedido&&d.producto===l.producto).reduce((s,d)=>s+d.unidades,0);
       const ldM=devsCl.filter(d=>d.pedido===pedido&&d.producto===l.producto).reduce((s,d)=>s+d.monto,0);
       const pu2=l.unidades>0?(l.monto/l.unidades):0; // 4 decimales abajo
-      const row=el("tr",{style:{borderTop:"1px solid #f0f0f0",background:li%2===0?"#fafbfc":"#fff"}});
-      row.appendChild(el("td",{style:{padding:"9px 12px"}},l.producto));
-      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right"}},fN(l.unidades)));
-      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#888"}},`Q ${Number(pu2).toLocaleString("es-GT",{minimumFractionDigits:4,maximumFractionDigits:4})}`));
-      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right"}},fQ(l.monto)));
-      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#c0392b"}},ldU>0?`-${fN(ldU)}`:"-"));
-      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#c0392b"}},ldM>0?`-${fQ(ldM)}`:"-"));
-      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",fontWeight:"700",color:"#1e3a5f"}},fQ(l.monto-ldM)));
+      const rowBgProd = pedEsPre ? (li%2===0?"#ebebeb":"#e4e4e4") : (li%2===0?"#fafbfc":"#fff");
+      const row=el("tr",{style:{borderTop:"1px solid #f0f0f0",background:rowBgProd}});
+      const colTexto = pedEsPre ? "#888" : undefined;
+      row.appendChild(el("td",{style:{padding:"9px 12px",...(colTexto?{color:colTexto}:{})}},l.producto));
+      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",...(colTexto?{color:colTexto}:{})}},fN(l.unidades)));
+      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:colTexto||"#888"}},`Q ${Number(pu2).toLocaleString("es-GT",{minimumFractionDigits:4,maximumFractionDigits:4})}`));
+      row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",...(colTexto?{color:colTexto}:{})}},fQ(l.monto)));
+      // Si es presupuesto, no mostrar columnas de dev ni neto operativo
+      if(pedEsPre){
+        row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#bbb"}},"-"));
+        row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#bbb"}},"-"));
+        row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#bbb",fontStyle:"italic",fontSize:"12px"}},"No entregado"));
+      } else {
+        row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#c0392b"}},ldU>0?`-${fN(ldU)}`:"-"));
+        row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",color:"#c0392b"}},ldM>0?`-${fQ(ldM)}`:"-"));
+        row.appendChild(el("td",{style:{padding:"9px 12px",textAlign:"right",fontWeight:"700",color:"#1e3a5f"}},fQ(l.monto-ldM)));
+      }
       tbody.appendChild(row);
     });
     const totRow=el("tr",{style:{background:"#f0f4f8"}});
@@ -1013,7 +1051,7 @@ function renderDetalleCliente() {
     pedDiv.appendChild(el("label",{style:{display:"block",fontSize:"12px",fontWeight:"600",color:"#555",marginBottom:"4px"}},"Pedido"));
     const pedSel=el("select",{style:inp()});
     pedSel.appendChild(el("option",{value:""},"-- Selecciona --"));
-    pedidos.forEach(([p])=>pedSel.appendChild(el("option",{value:p},p)));
+    pedidosEntregables.forEach(([p])=>pedSel.appendChild(el("option",{value:p},p)));
     pedSel.value=state.dvPedido;
     pedSel.onchange=e=>setState({dvPedido:e.target.value,dvProducto:"",dvUnidades:"",dvMonto:""});
     pedDiv.appendChild(pedSel); grid.appendChild(pedDiv);
@@ -1141,7 +1179,7 @@ function renderDetalleCliente() {
 
 function renderMain() {
   const clientes=Object.keys(state.clienteMap);
-  const clientesEntregables=clientes.filter(c=>!/^pre$/i.test(state.clienteMap[c].estPed||""));
+  const clientesEntregables=clientes.filter(c=>!esClientePre(c));
   // Variables globales de renderMain (declaradas aquí para uso en modal y resto)
   const totalDevGral=clientesEntregables.reduce((s,c)=>{
     if(state.estadoEntrega[c]==="rosado") return s+totalesCliente(c).monto;
@@ -1271,7 +1309,7 @@ function renderMain() {
   const hdr=el("div",{style:{background:"#1e3a5f",color:"#fff",borderRadius:"12px",padding:"16px 24px",marginBottom:"20px",display:"flex",justifyContent:"space-between",alignItems:"center"}});
   const hdrLeft=el("div");
   hdrLeft.appendChild(el("h1",{style:{margin:"0",fontSize:"20px"}},"📦 Liquidación de Entregas"));
-  const cntPresupuestoTotal=clientes.filter(c=>/^pre$/i.test(state.clienteMap[c].estPed||"")).length;
+  const cntPresupuestoTotal=clientes.filter(c=>esClientePre(c)).length;
   const clientesLabel=cntPresupuestoTotal>0?`${clientesEntregables.length} clientes + ${cntPresupuestoTotal} presupuesto${cntPresupuestoTotal>1?"s":""}`:`${clientes.length} clientes`;
   hdrLeft.appendChild(el("p",{style:{margin:"4px 0 0",fontSize:"12px",opacity:"0.75"}},`${state.fileName} · ${state.fecha} · ${clientesLabel}`));
   hdr.appendChild(hdrLeft);
@@ -1346,7 +1384,7 @@ function renderMain() {
     const cntVerdeR=rutaClientes.filter(c=>state.estadoEntrega[c]==="verde").length;
     const cntAmarilloR=rutaClientes.filter(c=>state.estadoEntrega[c]==="amarillo").length;
     const cntRosadoR=rutaClientes.filter(c=>state.estadoEntrega[c]==="rosado").length;
-    const rutaEntregables=rutaClientes.filter(c=>!/^pre$/i.test(state.clienteMap[c].estPed||""));
+    const rutaEntregables=rutaClientes.filter(c=>!esClientePre(c));
     const entregadosRuta=cntVerdeR+cntAmarilloR;
     const montoEntregadoRuta=rutaEntregables.filter(c=>state.estadoEntrega[c] && state.estadoEntrega[c]!=="rosado").reduce((s,c)=>s+totalesCliente(c).netoM,0);
     const montoPendienteRuta=rutaEntregables.filter(c=>!state.estadoEntrega[c]).reduce((s,c)=>s+totalesCliente(c).netoM,0);
@@ -1360,7 +1398,7 @@ function renderMain() {
     const pctEfectividadR=rutaEntregables.length>0?Math.round((cntVerdeR+cntAmarilloR)/rutaEntregables.length*100):0;
     const pctMontoRuta=montoTotalRuta>0?(Math.round(montoEntregadoRuta/montoTotalRuta*1000)/10).toFixed(1):0;
     const pctDevMontoRuta=montoTotalRuta>0?(Math.round(devTotalRuta/montoTotalRuta*1000)/10).toFixed(1):0;
-    const cntPresupuestoR=rutaClientes.filter(c=>/^pre$/i.test(state.clienteMap[c].estPed||"")).length;
+    const cntPresupuestoR=rutaClientes.filter(c=>esClientePre(c)).length;
 
     const rutaNombre = ruta.replace(/[\s—–-]+\d+\s*clientes?/i,"").trim();
     const rutaDiv=el("div",{style:{marginBottom:"24px"}});
@@ -1391,7 +1429,7 @@ function renderMain() {
       const tieneComentario=!!(state.comentarios[cliente]||"").trim();
       const pedidosList=Object.keys(state.clienteMap[cliente].pedidos).join(", ");
       const estado = state.estadoEntrega[cliente] || null;
-      const esPresupuesto = /^pre$/i.test(state.clienteMap[cliente].estPed||"");
+      const esPresupuesto = esClientePre(cliente);
       // Notas del vendedor de cualquier pedido del cliente
       const notasVendedor = Object.values(state.clienteMap[cliente].pedidos||{}).map(p=>p.nota).filter(Boolean);
       // Color de fila según estado
@@ -1667,7 +1705,7 @@ function renderMain() {
     confirmDiv.appendChild(el("div",{style:{background:"#e8f5e9",borderRadius:"12px",padding:"16px 24px",display:"inline-flex",alignItems:"center",gap:"10px",fontSize:"15px",fontWeight:"700",color:"#27ae60"}},"✅ Liquidación confirmada y guardada correctamente"));
   } else {
     confirmDiv.appendChild(el("button",{style:{background:"#27ae60",color:"#fff",border:"none",borderRadius:"12px",padding:"14px 48px",fontSize:"16px",fontWeight:"700",cursor:"pointer",boxShadow:"0 4px 12px rgba(39,174,96,0.3)"},onClick:()=>{
-      const sinConfirmar=clientes.filter(c=>!state.estadoEntrega[c] && !/^pre$/i.test(state.clienteMap[c]?.estPed||""));
+      const sinConfirmar=clientes.filter(c=>!state.estadoEntrega[c] && !esClientePre(c));
       if(sinConfirmar.length>0){
         alert(`⚠️ Hay ${sinConfirmar.length} entrega(s) sin confirmar:\n\n${sinConfirmar.map(c=>`• ${c}`).join("\n")}\n\nPor favor confirma todas las entregas antes de liquidar.`);
         return;
