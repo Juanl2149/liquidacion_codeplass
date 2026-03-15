@@ -146,7 +146,7 @@ let state = {
   bloqueados: {},
   deposito: "",
   transferencia: "",
-  gastosDetalle: [{desc:"",monto:"",comentario:""}],
+  gastosDetalle: [{desc:"",monto:"",comentario:"",deCuenta:true}],
   billetes: Object.fromEntries(BILLETES.map(b=>[b,""])),
   monedas: "",
   clienteDetalle: null,
@@ -315,7 +315,7 @@ async function procesarArchivo(file) {
     await fbSet("datos-dia",{clienteMap:cleanMap,fileName:file.name,fecha:state.fecha});
     setState({
       clienteMap:cleanMap,devoluciones:[],entregados:{},estadoEntrega:{},motivosDevTotal:{},descuentos:{},comentarios:{},bloqueados:{},
-      deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:""}],
+      deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:"",deCuenta:true}],
       billetes:Object.fromEntries(BILLETES.map(b=>[b,""])),monedas:"",confirmado:false,
       fileName:file.name,screen:"main",busqueda:""
     });
@@ -484,19 +484,21 @@ async function exportarExcel(reg) {
   const mon=parseFloat(reg.monedas)||0,tEf=tB+mon;
   const tDep=parseFloat(reg.deposito)||0,tTra=parseFloat(reg.transferencia)||0;
   const tGas=gastos.reduce((s,g)=>s+(parseFloat(g.monto)||0),0);
-  const tPag=tEf+tDep+tTra,nRec=tPag-tGas,dif=nRec-sN;
+  const tGasDeCuenta=gastos.reduce((s,g)=>g.deCuenta?(s+(parseFloat(g.monto)||0)):s,0);
+  const tGasBodega=tGas-tGasDeCuenta;
+  const tPag=tEf+tDep+tTra,nRec=tPag-tGasDeCuenta,dif=nRec-sN;
   const cuadreRows=[
     ["CUADRE FINAL - "+(reg.fecha||"")],[],["BILLETES","Cantidad","Total Q"],
     ...[1,5,10,20,50,100,200].map(b=>{const c=parseFloat(billetes[b])||0;return c>0?["Q"+b,c,b*c]:null;}).filter(Boolean),
     ["Subtotal billetes","",tB],["Monedas","",mon],["Total efectivo","",tEf],
     [],[" OTROS PAGOS","",""],["Deposito bancario","",tDep],["Transferencia","",tTra],
-    [],[" GASTOS DE RUTA","Descripcion","Monto Q"],
-    ...gastos.filter(g=>parseFloat(g.monto)).map(g=>[g.comentario||"",g.desc||"",parseFloat(g.monto)]),
-    ["Total gastos","",tGas],
+    [],[" GASTOS DE RUTA","Descripcion","Monto Q","De cuenta (✓=si)"],
+    ...gastos.filter(g=>parseFloat(g.monto)).map(g=>[g.comentario||"",g.desc||"",parseFloat(g.monto),g.deCuenta?"✓":"—"]),
+    ["Gastos de ruta (bodega)","",tGasBodega],["Gastos de ruta (de cuenta)","",tGasDeCuenta],["Total gastos","",tGas],
     [],[" RESUMEN","",""],
     ["Total a entregar (bruto)","",sB],["(-) Devoluciones","",-sD],["(-) Descuentos","",-sDe],["Total neto a cobrar","",sN],
     [],[" PAGOS RECIBIDOS","",""],
-    ["Total pagos recibidos","",tPag],["(-) Gastos de ruta","",-tGas],["Neto recibido","",nRec],
+    ["Total pagos recibidos","",tPag],["(-) Gastos de ruta de cuenta","",-tGasDeCuenta],["Neto recibido","",nRec],
     [],[Math.abs(dif)<0.01?"✓ CUADRADO":dif>0?"SOBRANTE":"FALTANTE","DIFERENCIA",dif],
   ];
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(cuadreRows),"Cuadre Final");
@@ -612,7 +614,9 @@ function actualizarResumen() {
   const totalEfectivo2 = totalBilletes2 + totalMonedas2;
   const totalDeposito2 = parseFloat(state.deposito)||0;
   const totalTransferencia2 = parseFloat(state.transferencia)||0;
-  const totalGastos2 = state.gastosDetalle.reduce((s,g)=>s+(parseFloat(g.monto)||0),0);
+  const totalGastosDeCuenta2 = state.gastosDetalle.reduce((s,g)=>g.deCuenta?(s+(parseFloat(g.monto)||0)):s,0);
+  const totalGastosBodega2 = state.gastosDetalle.reduce((s,g)=>!g.deCuenta?(s+(parseFloat(g.monto)||0)):s,0);
+  const totalGastos2 = totalGastosDeCuenta2 + totalGastosBodega2;
   const totalPagos2 = totalEfectivo2 + totalDeposito2 + totalTransferencia2;
 
   // Total a Entregar: bruto de clientes entregables (excluir presupuestos)
@@ -639,7 +643,7 @@ function actualizarResumen() {
   // Total Neto: Total a Entregar - Devoluciones - Descuentos
   const totalNetoCuadre = totalAEntregar - totalDevCuadre - totalDescCuadre;
 
-  const diferencia2 = (totalPagos2 + totalGastos2) - totalNetoCuadre;
+  const diferencia2 = (totalPagos2 - totalGastosDeCuenta2) - totalNetoCuadre;
   resDiv.innerHTML = "";
   [
     {label:"Total a Entregar", val:fQ(totalAEntregar), color:"#1e3a5f", bold:true},
@@ -650,7 +654,8 @@ function actualizarResumen() {
     {label:"Depósito", val:fQ(totalDeposito2), color:"#333"},
     {label:"Transferencia", val:fQ(totalTransferencia2), color:"#333"},
     {label:"Total recibido", val:fQ(totalPagos2), color:"#2563eb", bold:true},
-    {label:"Gastos de ruta", val:`-${fQ(totalGastos2)}`, color:"#e67e22"},
+    {label:"Gastos de ruta ≠ cuenta", val:totalGastosBodega2>0?`-${fQ(totalGastosBodega2)}`:"Q 0.00", color:"#e67e22"},
+    {label:"Gastos de ruta de la cuenta", val:totalGastosDeCuenta2>0?`-${fQ(totalGastosDeCuenta2)}`:"Q 0.00", color:"#c0392b"},
   ].forEach(x=>{
     const row=document.createElement("div");
     row.style.cssText=`display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #e2e8f0;${x.sep?"margin-top:6px;border-top:2px solid #1e3a5f;padding-top:6px;":""}`;
@@ -1213,13 +1218,14 @@ function renderMain() {
   const totalEfectivo=totalBilletes+totalMonedas;
   const totalDeposito=parseFloat(state.deposito)||0;
   const totalTransferencia=parseFloat(state.transferencia)||0;
+  const totalGastosDeCuenta=state.gastosDetalle.reduce((s,g)=>g.deCuenta?(s+(parseFloat(g.monto)||0)):s,0);
   const totalGastos=state.gastosDetalle.reduce((s,g)=>s+(parseFloat(g.monto)||0),0);
   const totalPagos=totalEfectivo+totalDeposito+totalTransferencia;
   // Total a cobrar solo de confirmados
   const totalACobrarConfirmado = Object.keys(state.clienteMap)
     .filter(c=>state.estadoEntrega[c] && state.estadoEntrega[c]!=="rosado")
     .reduce((s,c)=>s+totalesCliente(c).netoM,0);
-  const diferencia=(totalPagos+totalGastos)-totalACobrarConfirmado;
+  const diferencia=(totalPagos-totalGastosDeCuenta)-totalACobrarConfirmado;
   const porRuta={};
   clientesFiltrados.forEach(c=>{
     const r=state.clienteMap[c].ruta||"Sin ruta";
@@ -1259,6 +1265,7 @@ function renderMain() {
     const totalDepositoM = parseFloat(state.deposito)||0;
     const totalTransferenciaM = parseFloat(state.transferencia)||0;
     const totalGastosM = state.gastosDetalle.reduce((s,g)=>s+(parseFloat(g.monto)||0),0);
+    const totalGastosDeCuentaM = state.gastosDetalle.reduce((s,g)=>g.deCuenta?(s+(parseFloat(g.monto)||0)):s,0);
     const totalPagosM = totalEfectivoM + totalDepositoM + totalTransferenciaM;
     const totalAEntregarM = clientesEntregables.reduce((s,c)=>{let m=0;Object.values(state.clienteMap[c].pedidos||{}).forEach(p=>p.lineas.forEach(l=>{m+=l.monto;}));return s+m;},0);
     const totalDescM = clientesEntregables.reduce((acc,c)=>{
@@ -1266,7 +1273,7 @@ function renderMain() {
       return acc+(parseFloat(state.descuentos[c])||0);
     },0);
     const totalNetoM = totalAEntregarM - totalDevGral - totalDescM;
-    const diferenciaM = (totalPagosM + totalGastosM) - totalNetoM;
+    const diferenciaM = (totalPagosM - totalGastosDeCuentaM) - totalNetoM;
     const difColor = Math.abs(diferenciaM)<0.01?"#27ae60":diferenciaM>0?"#2563eb":"#c0392b";
     const difTexto = Math.abs(diferenciaM)<0.01?"✓ CUADRADO":diferenciaM>0?`+${fQ(diferenciaM)} SOBRANTE`:`-${fQ(Math.abs(diferenciaM))} FALTANTE`;
 
@@ -1298,7 +1305,8 @@ function renderMain() {
       {label:"Depósito:",val:fQ(totalDepositoM),color:"#333"},
       {label:"Transferencia:",val:fQ(totalTransferenciaM),color:"#333"},
       {label:"Total recibido:",val:fQ(totalPagosM),color:"#2563eb",bold:true},
-      {label:"Gastos de ruta:",val:`-${fQ(totalGastosM)}`,color:"#e67e22"},
+      {label:"Gastos ruta ≠ cuenta:",val:`-${fQ(totalGastosM-totalGastosDeCuentaM)}`,color:"#e67e22"},
+      {label:"Gastos ruta de cuenta:",val:`-${fQ(totalGastosDeCuentaM)}`,color:"#c0392b"},
     ].forEach(r=>{
       secCuadre.appendChild(el("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"4px"}},el("span",{style:{color:"#666"}},r.label),el("span",{style:{fontWeight:r.bold?"700":"600",color:r.color}},r.val)));
     });
@@ -1333,9 +1341,9 @@ function renderMain() {
   } else {
     if(state.confirmado) hdrBtns.appendChild(el("span",{style:{background:"#27ae60",color:"#fff",borderRadius:"8px",padding:"6px 12px",fontSize:"12px",fontWeight:"700"}},"Confirmada"));
     hdrBtns.appendChild(el("button",{style:{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px"},onClick:abrirHistorial},"Historial"));
-    if(state.esAdmin) hdrBtns.appendChild(el("button",{style:{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px"},onClick:()=>setState({screen:"upload",clienteMap:{},devoluciones:[],estadoEntrega:{},descuentos:{},comentarios:{},bloqueados:{},deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:""}],billetes:Object.fromEntries(BILLETES.map(b=>[b,""])),monedas:"",confirmado:false,modoHistorial:false})},"Nuevo archivo"));
+    if(state.esAdmin) hdrBtns.appendChild(el("button",{style:{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px"},onClick:()=>setState({screen:"upload",clienteMap:{},devoluciones:[],estadoEntrega:{},descuentos:{},comentarios:{},bloqueados:{},deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:"",deCuenta:true}],billetes:Object.fromEntries(BILLETES.map(b=>[b,""])),monedas:"",confirmado:false,modoHistorial:false})},"Nuevo archivo"));
   }
-  hdrBtns.appendChild(el("button",{style:{background:"#c0392b",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px",fontWeight:"600"},onClick:()=>setState({autenticado:false,esAdmin:false,screen:"upload",clienteMap:{},devoluciones:[],estadoEntrega:{},descuentos:{},comentarios:{},bloqueados:{},deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:""}],billetes:Object.fromEntries(BILLETES.map(b=>[b,""])),monedas:"",confirmado:false,modoHistorial:false})},"🚪 Salir"));
+  hdrBtns.appendChild(el("button",{style:{background:"#c0392b",color:"#fff",border:"none",borderRadius:"8px",padding:"8px 14px",cursor:"pointer",fontSize:"13px",fontWeight:"600"},onClick:()=>setState({autenticado:false,esAdmin:false,screen:"upload",clienteMap:{},devoluciones:[],estadoEntrega:{},descuentos:{},comentarios:{},bloqueados:{},deposito:"",transferencia:"",gastosDetalle:[{desc:"",monto:"",comentario:"",deCuenta:true}],billetes:Object.fromEntries(BILLETES.map(b=>[b,""])),monedas:"",confirmado:false,modoHistorial:false})},"🚪 Salir"));
   hdr.appendChild(hdrBtns); inner.appendChild(hdr);
 
   // Cards
@@ -1661,13 +1669,26 @@ function renderMain() {
   gasDiv.appendChild(el("label",{style:{display:"block",fontSize:"12px",fontWeight:"600",color:"#555",marginBottom:"6px"}},"⛽ Gastos de ruta"));
   const gasTable=el("table",{style:{width:"100%",borderCollapse:"collapse",fontSize:"12px",marginBottom:"6px"}});
   const gasThead=el("thead"); const gasTr=el("tr");
-  [["Descripción","40%"],["Monto Q","22%"],["Comentario",""],["","24px"]].forEach(([h,w])=>{
-    gasTr.appendChild(el("th",{style:{background:"#f0f4f8",padding:"5px 8px",textAlign:h==="Monto Q"?"right":"left",color:"#555",fontWeight:"600",...(w?{width:w}:{})}},h));
+  [["","20px"],["Descripción","38%"],["Monto Q","22%"],["Comentario",""],["","24px"]].forEach(([h,w])=>{
+    gasTr.appendChild(el("th",{style:{background:"#f0f4f8",padding:"5px 8px",textAlign:h==="Monto Q"?"right":"center",color:"#555",fontWeight:"600",...(w?{width:w}:{})}},h));
   });
   gasThead.appendChild(gasTr); gasTable.appendChild(gasThead);
   const gasTbody=el("tbody");
   state.gastosDetalle.forEach((g,gi)=>{
     const grow=el("tr");
+    // Checkbox "de cuenta"
+    const gcbTd=el("td",{style:{padding:"3px 4px",textAlign:"center"}});
+    if(!state.modoHistorial){
+      const gcb=document.createElement("input"); gcb.type="checkbox";
+      gcb.style.cssText="width:15px;height:15px;cursor:pointer;accent-color:#27ae60;";
+      gcb.checked=g.deCuenta||false;
+      gcb.title="Marcar si el dinero se tomó de lo cobrado en ruta";
+      gcb.addEventListener("change",e=>{state.gastosDetalle[gi].deCuenta=e.target.checked; actualizarResumen();});
+      gcbTd.appendChild(gcb);
+    } else {
+      gcbTd.appendChild(el("span",{style:{fontSize:"13px"}},g.deCuenta?"✅":"⬜"));
+    }
+    grow.appendChild(gcbTd);
     const gd=el("td",{style:{padding:"3px 4px"}});
     const gdInp=document.createElement("input"); gdInp.placeholder="Ej: Combustible";
     gdInp.style.cssText="width:100%;padding:4px 6px;border-radius:6px;border:1px solid #ccc;font-size:12px;box-sizing:border-box;font-family:sans-serif;"+(state.modoHistorial?";background:#f4f6f9;color:#555;cursor:not-allowed":"");
@@ -1698,7 +1719,7 @@ function renderMain() {
     gasTbody.appendChild(grow);
   });
   gasTable.appendChild(gasTbody); gasDiv.appendChild(gasTable);
-  gasDiv.appendChild(el("button",{style:{background:"#eef2f7",border:"none",borderRadius:"6px",padding:"4px 12px",fontSize:"12px",cursor:"pointer",color:"#1e3a5f",fontWeight:"600"},onClick:()=>setState({gastosDetalle:[...state.gastosDetalle,{desc:"",monto:"",comentario:""}]})},"+ Agregar gasto"));
+  gasDiv.appendChild(el("button",{style:{background:"#eef2f7",border:"none",borderRadius:"6px",padding:"4px 12px",fontSize:"12px",cursor:"pointer",color:"#1e3a5f",fontWeight:"600"},onClick:()=>setState({gastosDetalle:[...state.gastosDetalle,{desc:"",monto:"",comentario:"",deCuenta:true}]})},"+ Agregar gasto"));
   otrosDiv.appendChild(gasDiv);
 
   // Resumen cuadre
